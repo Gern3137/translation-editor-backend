@@ -99,7 +99,7 @@ async def upload_file(file: UploadFile, user_prompt: str = Form(DEFAULT_USER_PRO
 
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
@@ -132,7 +132,7 @@ async def paste_text(text: str = Form(...), user_prompt: str = Form(DEFAULT_USER
 
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
@@ -169,7 +169,7 @@ async def retranslate_block(request: Request):
         prompt = build_prompt(sentences, user_prompt)
 
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
