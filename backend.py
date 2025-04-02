@@ -82,8 +82,22 @@ def build_prompt(sentences, user_prompt):
     joined = "\n".join(f"{i+1}. {s}" for i, s in enumerate(sentences))
     return f"{SYSTEM_PROMPT}\n\nUser Style Guidance (follow if it does not conflict with the above):\n{user_prompt.strip()}\n\nHere is the list of English sentences to translate:\n{joined}\n\nReturn ONLY the JSON array."
 
+# Helper function to remove unwanted sentences
+def filter_skip_words(sentences, skip_words_str):
+    skip_lines = [w.strip() for w in skip_words_str.splitlines() if w.strip()]
+    if not skip_lines:
+        return sentences
+    return [
+        s for s in sentences
+        if not any(skip_word in s for skip_word in skip_lines)
+    ]
+
 @app.post("/upload/", response_model=TranslationResponse)
-async def upload_file(file: UploadFile, user_prompt: str = Form(DEFAULT_USER_PROMPT)):
+async def upload_file(
+    file: UploadFile,
+    user_prompt: str = Form(DEFAULT_USER_PROMPT),
+    skip_words: str = Form("")
+):
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
@@ -94,6 +108,9 @@ async def upload_file(file: UploadFile, user_prompt: str = Form(DEFAULT_USER_PRO
     cleaned = clean_text(raw_text)
     preprocessed = preprocess_sentences(cleaned)
     sentences = split_sentences(preprocessed)
+
+    # ✅ Apply skip word filter here
+    sentences = filter_skip_words(sentences, skip_words)
 
     prompt = build_prompt(sentences, user_prompt)
 
@@ -121,6 +138,7 @@ async def upload_file(file: UploadFile, user_prompt: str = Form(DEFAULT_USER_PRO
     except Exception as e:
         print("Upload endpoint error:", str(e))
         raise HTTPException(status_code=500, detail=f"Upload translation failed: {str(e)}")
+
 
 @app.post("/paste/", response_model=TranslationResponse)
 async def paste_text(text: str = Form(...), user_prompt: str = Form(DEFAULT_USER_PROMPT)):
