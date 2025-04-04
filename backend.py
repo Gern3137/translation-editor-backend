@@ -119,13 +119,15 @@ async def upload_file(
     sentences = split_sentences(preprocessed)
     sentences = filter_skip_words(sentences, skip_words)
 
-    CHUNK_SIZE = 100
+    CHUNK_SIZE = 50  # ✅ Reduced for safety with long text
     all_pairs = []
 
     try:
         for i in range(0, len(sentences), CHUNK_SIZE):
             chunk = sentences[i:i + CHUNK_SIZE]
             prompt = build_prompt(chunk, user_prompt)
+
+            print(f"🧩 Sending chunk {i // CHUNK_SIZE + 1} with {len(chunk)} sentences...")
 
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -137,12 +139,13 @@ async def upload_file(
             )
 
             output = response.choices[0].message.content.strip()
-            print(f"Chunk {i // CHUNK_SIZE + 1}: {len(chunk)} sentences")  # Optional debug
-            print(output[:300])  # Show first 300 chars of GPT response for debug
+            print("📥 GPT raw output (start):", output[:300])
 
             start = output.find("[")
             end = output.rfind("]")
             if start == -1 or end == -1:
+                print("❌ GPT returned invalid JSON (missing brackets)")
+                print("❌ Full GPT response:", output)
                 raise ValueError("No JSON array found in GPT response.")
 
             json_str = output[start:end+1]
@@ -151,10 +154,11 @@ async def upload_file(
             pairs = [AlignedTranslation(**p) for p in raw_pairs]
             all_pairs.extend(pairs)
 
+        print(f"✅ Finished! Translated {len(all_pairs)} sentences total.")
         return {"pairs": all_pairs}
 
     except Exception as e:
-        print("Upload endpoint error:", str(e))
+        print("🔥 Upload endpoint error:", str(e))
         raise HTTPException(status_code=500, detail=f"Upload translation failed: {str(e)}")
 
 
