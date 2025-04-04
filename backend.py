@@ -108,71 +108,46 @@ async def upload_file(
     cleaned = clean_text(raw_text)
     preprocessed = preprocess_sentences(cleaned)
     sentences = split_sentences(preprocessed)
-
-    # ✅ Apply skip word filter here
     sentences = filter_skip_words(sentences, skip_words)
 
-    prompt = build_prompt(sentences, user_prompt)
+    CHUNK_SIZE = 100
+    all_pairs = []
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
-        output = response.choices[0].message.content.strip()
-        start = output.find("[")
-        end = output.rfind("]")
-        if start == -1 or end == -1:
-            raise ValueError("No JSON array found in GPT response.")
+        for i in range(0, len(sentences), CHUNK_SIZE):
+            chunk = sentences[i:i + CHUNK_SIZE]
+            prompt = build_prompt(chunk, user_prompt)
 
-        json_str = output[start:end+1]
-        raw_pairs = json.loads(json_str)
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
 
-        pairs = [AlignedTranslation(**p) for p in raw_pairs]
-        return {"pairs": pairs}
+            output = response.choices[0].message.content.strip()
+            print(f"Chunk {i // CHUNK_SIZE + 1}: {len(chunk)} sentences")  # Optional debug
+            print(output[:300])  # Show first 300 chars of GPT response for debug
+
+            start = output.find("[")
+            end = output.rfind("]")
+            if start == -1 or end == -1:
+                raise ValueError("No JSON array found in GPT response.")
+
+            json_str = output[start:end+1]
+            raw_pairs = json.loads(json_str)
+
+            pairs = [AlignedTranslation(**p) for p in raw_pairs]
+            all_pairs.extend(pairs)
+
+        return {"pairs": all_pairs}
 
     except Exception as e:
         print("Upload endpoint error:", str(e))
         raise HTTPException(status_code=500, detail=f"Upload translation failed: {str(e)}")
 
-
-@app.post("/paste/", response_model=TranslationResponse)
-async def paste_text(text: str = Form(...), user_prompt: str = Form(DEFAULT_USER_PROMPT)):
-    cleaned = clean_text(text)
-    preprocessed = preprocess_sentences(cleaned)
-    sentences = split_sentences(preprocessed)
-
-    prompt = build_prompt(sentences, user_prompt)
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
-
-        output = response.choices[0].message.content.strip()
-        start = output.find("[")
-        end = output.rfind("]")
-        if start == -1 or end == -1:
-            raise ValueError("No JSON array found in GPT response.")
-
-        json_str = output[start:end+1]
-        raw_pairs = json.loads(json_str)
-
-        pairs = [AlignedTranslation(**p) for p in raw_pairs]
-        return {"pairs": pairs}
-
-    except Exception as e:
-        print("Paste endpoint error:", str(e))
-        raise HTTPException(status_code=500, detail=f"Paste translation failed: {str(e)}")
 
 @app.post("/retranslate/")
 async def retranslate_block(request: Request):
