@@ -80,7 +80,16 @@ def split_sentences(text):
 
 def build_prompt(sentences, user_prompt):
     joined = "\n".join(f"{i+1}. {s}" for i, s in enumerate(sentences))
-    return f"{SYSTEM_PROMPT}\n\nUser Style Guidance (follow if it does not conflict with the above):\n{user_prompt.strip()}\n\nHere is the list of English sentences to translate:\n{joined}\n\nReturn ONLY the JSON array."
+    return f"""
+User Style Guidance (follow if it does not conflict with the system instructions):
+{user_prompt.strip()}
+
+Translate the following English sentences into Japanese:
+{joined}
+
+Return ONLY the JSON array in this format:
+[{{"original": "...", "translated": "..."}}]
+""".strip()
 
 # Helper function to remove unwanted sentences
 def filter_skip_words(sentences, skip_words_str):
