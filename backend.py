@@ -91,7 +91,21 @@ Return ONLY the JSON array in this format:
 [{{"original": "...", "translated": "..."}}]
 """.strip()
 
+def build_prompt(sentences, user_prompt):
+    joined = "\n".join(f"{i+1}. {s}" for i, s in enumerate(sentences))
+    return f"""
+User Style Guidance (follow if it does not conflict with the system instructions):
+{user_prompt.strip()}
+
+Translate the following English sentences into Japanese:
+{joined}
+
+Return ONLY the JSON array in this format:
+[{{"original": "...", "translated": "..."}}]
+""".strip()
+
 # Helper function to remove unwanted sentences
+
 def filter_skip_words(sentences, skip_words_str):
     skip_lines = [w.strip() for w in skip_words_str.splitlines() if w.strip()]
     if not skip_lines:
@@ -113,33 +127,34 @@ async def upload_file(
     content = await file.read()
     doc = fitz.open(stream=content, filetype="pdf")
 
-    # ✅ Better block-based text extraction (preserves order better)
+    # ✅ Improved block-based text extraction (preserve all text in reading order)
     blocks = []
     for page in doc:
         for b in page.get_text("blocks"):
             blocks.append((page.number, b[1], b[4]))  # page number, y position, text
-    blocks = sorted(blocks, key=lambda b: (b[0], b[1]))  # sort by page and vertical position
+    blocks = sorted(blocks, key=lambda b: (b[0], b[1]))
     raw_text = "\n".join(b[2] for b in blocks)
 
-    # ✅ Cleaner text but less aggressive line removal
+    # ✅ Line-level cleaning, less aggressive
     lines = raw_text.splitlines()
     cleaned_lines = []
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        if len(line) <= 2 and all(c in "'\"“”’‘-–—" for c in line):
+        if all(c in "'\"“”’‘-–—*•" for c in line.strip()):
             continue
         cleaned_lines.append(line)
-    cleaned = " ".join(cleaned_lines)
+    cleaned = "\n".join(cleaned_lines)  # Preserve paragraph breaks
 
-    # ✅ Preprocessing
+    # ✅ Preprocessing and sentence splitting
     preprocessed = preprocess_sentences(cleaned)
     sentences = split_sentences(preprocessed)
     sentences = filter_skip_words(sentences, skip_words)
 
-    # ✅ Chunked GPT requests
-    CHUNK_SIZE = 50
+    print(f"📄 Total sentences extracted: {len(sentences)}")
+
+    CHUNK_SIZE = 30
     all_pairs = []
 
     try:
