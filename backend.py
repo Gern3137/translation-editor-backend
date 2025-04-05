@@ -112,14 +112,34 @@ async def upload_file(
 
     content = await file.read()
     doc = fitz.open(stream=content, filetype="pdf")
-    raw_text = "\n".join([page.get_text() for page in doc])
 
-    cleaned = clean_text(raw_text)
+    # ✅ Better block-based text extraction (preserves order better)
+    blocks = []
+    for page in doc:
+        for b in page.get_text("blocks"):
+            blocks.append((page.number, b[1], b[4]))  # page number, y position, text
+    blocks = sorted(blocks, key=lambda b: (b[0], b[1]))  # sort by page and vertical position
+    raw_text = "\n".join(b[2] for b in blocks)
+
+    # ✅ Cleaner text but less aggressive line removal
+    lines = raw_text.splitlines()
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if len(line) <= 2 and all(c in "'\"“”’‘-–—" for c in line):
+            continue
+        cleaned_lines.append(line)
+    cleaned = " ".join(cleaned_lines)
+
+    # ✅ Preprocessing
     preprocessed = preprocess_sentences(cleaned)
     sentences = split_sentences(preprocessed)
     sentences = filter_skip_words(sentences, skip_words)
 
-    CHUNK_SIZE = 50  # ✅ Reduced for safety with long text
+    # ✅ Chunked GPT requests
+    CHUNK_SIZE = 50
     all_pairs = []
 
     try:
@@ -144,8 +164,8 @@ async def upload_file(
             start = output.find("[")
             end = output.rfind("]")
             if start == -1 or end == -1:
-                print("❌ GPT returned invalid JSON (missing brackets)")
-                print("❌ Full GPT response:", output)
+                print("❌ GPT returned invalid JSON")
+                print("❌ Full output:", output)
                 raise ValueError("No JSON array found in GPT response.")
 
             json_str = output[start:end+1]
@@ -154,46 +174,9 @@ async def upload_file(
             pairs = [AlignedTranslation(**p) for p in raw_pairs]
             all_pairs.extend(pairs)
 
-        print(f"✅ Finished! Translated {len(all_pairs)} sentences total.")
+        print(f"✅ Finished! Translated {len(all_pairs)} sentence pairs.")
         return {"pairs": all_pairs}
 
     except Exception as e:
         print("🔥 Upload endpoint error:", str(e))
         raise HTTPException(status_code=500, detail=f"Upload translation failed: {str(e)}")
-
-
-@app.post("/retranslate/")
-async def retranslate_block(request: Request):
-    try:
-        data = await request.json()
-        sentences = data.get("sentences")
-        user_prompt = data.get("user_prompt", DEFAULT_USER_PROMPT)
-
-        if not sentences or not isinstance(sentences, list):
-            raise HTTPException(status_code=400, detail="Invalid input")
-
-        prompt = build_prompt(sentences, user_prompt)
-
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
-
-        output = response.choices[0].message.content.strip()
-        start = output.find("[")
-        end = output.rfind("]")
-        if start == -1 or end == -1:
-            raise ValueError("No JSON array found in GPT response.")
-
-        json_str = output[start:end+1]
-        raw_pairs = json.loads(json_str)
-
-        return {"pairs": raw_pairs}
-
-    except Exception as e:
-        print("Retranslate endpoint error:", str(e))
-        raise HTTPException(status_code=500, detail=f"Re-translation failed: {str(e)}")
