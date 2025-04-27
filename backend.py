@@ -151,42 +151,45 @@ async def upload_file(
     CHUNK_SIZE = 30
     all_pairs = []
 
-    try:
-        for i in range(0, len(sentences), CHUNK_SIZE):
-            chunk = sentences[i:i + CHUNK_SIZE]
-            prompt = build_prompt(chunk, user_prompt)
+try:
+    for i in range(0, len(sentences), CHUNK_SIZE):
+        chunk = sentences[i:i + CHUNK_SIZE]
+        prompt = build_prompt(chunk, user_prompt)
 
-            print(f"🧩 Sending chunk {i // CHUNK_SIZE + 1} with {len(chunk)} sentences...")
+        print(f"🧩 Sending chunk {i // CHUNK_SIZE + 1} with {len(chunk)} sentences...")
 
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3
-            )
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
 
-            output = response.choices[0].message.content.strip()
-            print("📥 GPT raw output (start):", output[:300])
+        output = response.choices[0].message.content.strip()
+        print("📥 GPT raw output (start):", output[:300])
 
-            start = output.find("[")
-            end = output.rfind("]")
-            if start == -1 or end == -1:
-                print("❌ GPT returned invalid JSON")
-                print("❌ Full output:", output)
-                raise ValueError("No JSON array found in GPT response.")
+        # ✨ New: clean dangerous control characters BEFORE parsing
+        cleaned_output = output.replace('\r', '').replace('\n', '').replace('\x00', '')
 
-            json_str = output[start:end+1]
-            json_str = json_str.replace('\n', '').replace('\r', '') 
-            raw_pairs = json.loads(json_str)
+        start = cleaned_output.find("[")
+        end = cleaned_output.rfind("]")
 
-            pairs = [AlignedTranslation(**p) for p in raw_pairs]
-            all_pairs.extend(pairs)
+        if start == -1 or end == -1:
+            print("❌ GPT returned invalid JSON")
+            print("❌ Full output:", cleaned_output)
+            raise ValueError("No JSON array found in GPT response.")
 
-        print(f"✅ Finished! Translated {len(all_pairs)} sentence pairs.")
-        return {"pairs": all_pairs}
+        json_str = cleaned_output[start:end+1]
+        raw_pairs = json.loads(json_str)
 
-    except Exception as e:
-        print("🔥 Upload endpoint error:", str(e))
-        raise HTTPException(status_code=500, detail=f"Upload translation failed: {str(e)}")
+        pairs = [AlignedTranslation(**p) for p in raw_pairs]
+        all_pairs.extend(pairs)
+
+    print(f"✅ Finished! Translated {len(all_pairs)} sentence pairs.")
+    return {"pairs": all_pairs}
+
+except Exception as e:
+    print("🔥 Upload endpoint error:", str(e))
+    raise HTTPException(status_code=500, detail=f"Upload translation failed: {str(e)}")
