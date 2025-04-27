@@ -178,6 +178,7 @@ async def upload_file(
                 raise ValueError("No JSON array found in GPT response.")
 
             json_str = output[start:end+1]
+            json_str = json_str.replace('\n', '').replace('\r', '') 
             raw_pairs = json.loads(json_str)
 
             pairs = [AlignedTranslation(**p) for p in raw_pairs]
