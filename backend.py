@@ -111,8 +111,9 @@ def filter_skip_words(sentences, skip_words_str):
 @app.post("/upload/", response_model=TranslationResponse)
 async def upload_file(
     file: UploadFile,
-    user_prompt: str = Form(""),
-    skip_words: str = Form("")
+user_prompt: str = Form(default=None),
+skip_words: str = Form(default=None)
+
 ):
     if not user_prompt.strip():
         user_prompt = DEFAULT_USER_PROMPT
