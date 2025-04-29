@@ -1,3 +1,5 @@
+# backend.py
+
 from fastapi import FastAPI, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -112,8 +114,9 @@ def filter_skip_words(sentences, skip_words_str):
 async def upload_file(
     file: UploadFile,
     user_prompt: str = Form(""),
-    skip_words: str = Form("")
-
+    skip_words: str = Form(""),
+    start_page: int = Form(1),
+    end_page: int = Form(9999),
 ):
     if not user_prompt.strip():
         user_prompt = DEFAULT_USER_PROMPT
@@ -126,8 +129,12 @@ async def upload_file(
 
     blocks = []
     for page in doc:
+        page_num = page.number + 1
+        if page_num < start_page or page_num > end_page:
+            continue
         for b in page.get_text("blocks"):
             blocks.append((page.number, b[1], b[4]))
+
     blocks = sorted(blocks, key=lambda b: (b[0], b[1]))
     raw_text = "\n".join(b[2] for b in blocks)
 
@@ -151,45 +158,43 @@ async def upload_file(
     CHUNK_SIZE = 30
     all_pairs = []
 
-try:
-    for i in range(0, len(sentences), CHUNK_SIZE):
-        chunk = sentences[i:i + CHUNK_SIZE]
-        prompt = build_prompt(chunk, user_prompt)
+    try:
+        for i in range(0, len(sentences), CHUNK_SIZE):
+            chunk = sentences[i:i + CHUNK_SIZE]
+            prompt = build_prompt(chunk, user_prompt)
 
-        print(f"🧩 Sending chunk {i // CHUNK_SIZE + 1} with {len(chunk)} sentences...")
+            print(f"🧩 Sending chunk {i // CHUNK_SIZE + 1} with {len(chunk)} sentences...")
 
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
 
-        output = response.choices[0].message.content.strip()
-        print("📥 GPT raw output (start):", output[:300])
+            output = response.choices[0].message.content.strip()
+            print("📥 GPT raw output (start):", output[:300])
 
-        # ✨ New: clean dangerous control characters BEFORE parsing
-        cleaned_output = output.replace('\r', '').replace('\n', '').replace('\x00', '')
+            cleaned_output = output.replace('\r', '').replace('\n', '').replace('\x00', '')
+            start = cleaned_output.find("[")
+            end = cleaned_output.rfind("]")
 
-        start = cleaned_output.find("[")
-        end = cleaned_output.rfind("]")
+            if start == -1 or end == -1:
+                print("❌ GPT returned invalid JSON")
+                print("❌ Full output:", cleaned_output)
+                raise ValueError("No JSON array found in GPT response.")
 
-        if start == -1 or end == -1:
-            print("❌ GPT returned invalid JSON")
-            print("❌ Full output:", cleaned_output)
-            raise ValueError("No JSON array found in GPT response.")
+            json_str = cleaned_output[start:end+1]
+            raw_pairs = json.loads(json_str)
 
-        json_str = cleaned_output[start:end+1]
-        raw_pairs = json.loads(json_str)
+            pairs = [AlignedTranslation(**p) for p in raw_pairs]
+            all_pairs.extend(pairs)
 
-        pairs = [AlignedTranslation(**p) for p in raw_pairs]
-        all_pairs.extend(pairs)
+        print(f"✅ Finished! Translated {len(all_pairs)} sentence pairs.")
+        return {"pairs": all_pairs}
 
-    print(f"✅ Finished! Translated {len(all_pairs)} sentence pairs.")
-    return {"pairs": all_pairs}
-
-except Exception as e:
-    print("🔥 Upload endpoint error:", str(e))
-    raise HTTPException(status_code=500, detail=f"Upload translation failed: {str(e)}")
+    except Exception as e:
+        print("🔥 Upload endpoint error:", str(e))
+        raise HTTPException(status_code=500, detail=f"Upload translation failed: {str(e)}")
